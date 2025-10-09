@@ -102,16 +102,12 @@ export const PostCard = ({ post, index }) => {
   }
 
   // Validate and clean imageHash
-  const getImageUrl = (imageHash) => {
-    if (!imageHash) return 'https://placehold.co/300x200';
-    // Check if it's already a raw hash (starts with 'Qm' and is 46 characters long)
-    if (/^Qm[1-9A-Za-z]{44}$/.test(imageHash)) {
-      return `https://gateway.pinata.cloud/ipfs/${imageHash}`;
-    }
-    // Handle full URLs
-    const match = imageHash.match(/ipfs\/(Qm[1-9A-Za-z]{44})/);
-    return match ? `https://gateway.pinata.cloud/ipfs/${match[1]}` : 'https://placehold.co/300x200';
-  };
+  const getGatewayUrl = (ipfsHash: string) => {
+  const match = ipfsHash.match(/ipfs:\/\/(Qm[1-9A-Za-z]{44})/) || ipfsHash.match(/(Qm[1-9A-Za-z]{44})/);
+  const rawHash = match ? match[1] : ipfsHash;
+  return `https://coffee-perfect-lemur-527.mypinata.cloud/ipfs/${rawHash}`;
+};
+
 
   return (
     <ErrorBoundary>
