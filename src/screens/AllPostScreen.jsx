@@ -341,25 +341,30 @@ const PostScreen = ({ route }) => {
       }
 
       // Try fetching JSON
-      try {
-        const url = `https://gateway.pinata.cloud/ipfs/${rawHash}`;
-        console.log('Fetching JSON from:', url);
-        const response = await fetch(url);
-        if (response.ok) {
-          const data = await response.json();
-          console.log('Fetched JSON data:', data);
-          setImageUrl(data.image || data.imageUrl || 'https://placehold.co/300x200');
-          return;
-        } else {
-          console.error('Failed to fetch JSON:', response.status, response.statusText);
-        }
-      } catch (error) {
-        console.error('Error fetching JSON:', error);
-      }
+     const url = `https://coffee-perfect-lemur-527.mypinata.cloud/ipfs/${rawHash}`;
+console.log('Fetching image from:', url);
+
+try {
+  // Check if it's JSON metadata (try parse)
+  const response = await fetch(url);
+  const text = await response.text();
+  
+  try {
+    const data = JSON.parse(text);
+    setImageUrl(data.image || data.imageUrl || 'https://placehold.co/300x200');
+  } catch {
+    // Not JSON — it’s likely an image
+    setImageUrl(url);
+  }
+} catch (error) {
+  console.error('Image fetch failed:', error);
+  setImageUrl('https://placehold.co/300x200');
+}
+
 
       // Fallback to direct image URL
-      console.log('Attempting direct image URL:', `https://gateway.pinata.cloud/ipfs/${rawHash}`);
-      setImageUrl(`https://gateway.pinata.cloud/ipfs/${rawHash}`);
+      console.log('Attempting direct image URL:', `https://coffee-perfect-lemur-527.mypinata.cloud/ipfs/${rawHash}`);
+      setImageUrl(`https://coffee-perfect-lemur-527.mypinata.cloud/ipfs/${rawHash}`);
     };
 
     fetchImageData();
