@@ -53,6 +53,7 @@ export const PostCard = ({ post, index }) => {
   const { colors } = useTheme();
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
+  const [imageUrl, setImageUrl] = useState('https://picsum.photos/300/200');
 
   useEffect(() => {
     Animated.parallel([
@@ -70,7 +71,17 @@ export const PostCard = ({ post, index }) => {
         delay: index * 100,
       }),
     ]).start();
-  }, [index]);
+
+    const fetchImage = async () => {
+      if (!post?.imageHash) {
+        console.log('No imageHash provided, using default:', 'https://picsum.photos/300/200');
+        return;
+      }
+      const url = await getImageUrl(post.imageHash);
+      setImageUrl(url);
+    };
+    fetchImage();
+  }, [index, post?.imageHash]);
 
   const formatDate = (timestamp) => {
     try {
@@ -102,12 +113,30 @@ export const PostCard = ({ post, index }) => {
   }
 
   // Validate and clean imageHash
-  const getGatewayUrl = (ipfsHash: string) => {
-  const match = ipfsHash.match(/ipfs:\/\/(Qm[1-9A-Za-z]{44})/) || ipfsHash.match(/(Qm[1-9A-Za-z]{44})/);
-  const rawHash = match ? match[1] : ipfsHash;
-  return `https://coffee-perfect-lemur-527.mypinata.cloud/ipfs/${rawHash}`;
-};
-
+  const getImageUrl = async (imageHash) => {
+    if (!imageHash) {
+      console.log('No imageHash provided, using default:', 'https://picsum.photos/300/200');
+      return 'https://picsum.photos/300/200';
+    }
+    // Check if it's already a raw hash (starts with 'Qm' and is 46 characters long)
+    if (/^Qm[1-9A-Za-z]{44}$/.test(imageHash)) {
+      const url = `https://coffee-perfect-lemur-527.mypinata.cloud/ipfs/${imageHash}`;
+      try {
+        const response = await fetch(url, { method: 'HEAD' });
+        console.log('HEAD check for:', url, 'Status:', response.status);
+        if (response.ok && response.headers.get('content-type')?.includes('image')) {
+          console.log('Valid image URL:', url);
+          return url;
+        } else {
+          console.error('Invalid content type or status:', response.status, response.headers.get('content-type'));
+        }
+      } catch (error) {
+        console.error('HEAD check failed for:', url, error);
+      }
+    }
+    console.log('Falling back to default image due to invalid hash or error');
+    return 'https://picsum.photos/300/200';
+  };
 
   return (
     <ErrorBoundary>
@@ -146,10 +175,13 @@ export const PostCard = ({ post, index }) => {
         {post.imageHash && (
           <View style={styles.imageContainer}>
             <Image
-              source={{ uri: getImageUrl(post.imageHash) }}
+              source={{ uri: imageUrl }}
               style={styles.postImage}
               resizeMode="cover"
-              onError={(e) => console.error('Image load error:', e.nativeEvent.error)}
+              onError={(e) => {
+                console.error('Image load error:', e.nativeEvent.error);
+                setImageUrl('https://picsum.photos/300/200');
+              }}
             />
           </View>
         )}
@@ -341,26 +373,21 @@ const PostScreen = ({ route }) => {
       }
 
       // Try fetching JSON
-     const url = `https://coffee-perfect-lemur-527.mypinata.cloud/ipfs/${rawHash}`;
-console.log('Fetching image from:', url);
-
-try {
-  // Check if it's JSON metadata (try parse)
-  const response = await fetch(url);
-  const text = await response.text();
-  
-  try {
-    const data = JSON.parse(text);
-    setImageUrl(data.image || data.imageUrl || 'https://placehold.co/300x200');
-  } catch {
-    // Not JSON — it’s likely an image
-    setImageUrl(url);
-  }
-} catch (error) {
-  console.error('Image fetch failed:', error);
-  setImageUrl('https://placehold.co/300x200');
-}
-
+      try {
+        const url = `https://coffee-perfect-lemur-527.mypinata.cloud/ipfs/${rawHash}`;
+        console.log('Fetching JSON from:', url);
+        const response = await fetch(url);
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Fetched JSON data:', data);
+          setImageUrl(data.image || data.imageUrl || 'https://placehold.co/300x200');
+          return;
+        } else {
+          console.error('Failed to fetch JSON:', response.status, response.statusText);
+        }
+      } catch (error) {
+        console.error('Error fetching JSON:', error);
+      }
 
       // Fallback to direct image URL
       console.log('Attempting direct image URL:', `https://coffee-perfect-lemur-527.mypinata.cloud/ipfs/${rawHash}`);
@@ -417,7 +444,10 @@ try {
                 source={{ uri: imageUrl }}
                 style={styles.postImage}
                 resizeMode="cover"
-                onError={(e) => console.error('Image load error:', e.nativeEvent.error)}
+                onError={(e) => {
+                  console.error('Image load error:', e.nativeEvent.error);
+                  setImageUrl('https://placehold.co/300x200');
+                }}
               />
             </View>
           )}
