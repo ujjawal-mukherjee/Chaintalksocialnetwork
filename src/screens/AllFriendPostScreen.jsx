@@ -73,54 +73,68 @@ const AllFriendPostScreen = () => {
 
   const getRawHash = (imageHash) => {
     if (!imageHash) return null;
-    const match = imageHash.match(/ipfs\/(Qm[1-9A-Za-z]{44})/);
-    return match ? match[1] : imageHash;
+    const match = imageHash.match(/(?:ipfs\/|ipfs:\/\/)?Qm[1-9A-Za-z]{44}/);
+    return match ? match[0].replace('ipfs://', '').replace('ipfs/', '') : imageHash;
   };
 
   const fetchImageData = useCallback(async (postId, imageHash) => {
     const id = String(postId);
+    console.log(`Starting fetchImageData for post ${id} with imageHash: ${imageHash}`);
     if (!imageHash || fetchedPostIds.has(id)) {
-      console.log(`Skipping fetch for post ${id}: already fetched or no imageHash`);
+      console.log(`Skipping fetch for post ${id}: already fetched or no imageHash, using fallback`);
+      setImageUrls((prev) => ({ ...prev, [id]: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200' }));
       return;
     }
 
     const rawHash = getRawHash(imageHash);
-    const url = `https://gateway.pinata.cloud/ipfs/${rawHash}`;
-    console.log(`Fetching image for post ${id}: ${url}`);
+    console.log(`Raw imageHash for post ${id}:`, rawHash);
+    if (!rawHash) {
+      console.log(`Invalid imageHash for post ${id}, using fallback`);
+      setImageUrls((prev) => ({ ...prev, [id]: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200' }));
+      setFetchedPostIds((prev) => new Set(prev).add(id));
+      return;
+    }
+
+    const url = `https://ipfs.io/ipfs/${rawHash}`;
+    console.log(`Fetching image for post ${id} from ${url}`);
+
+    try {
+      const response = await fetch(url, { method: 'HEAD' });
+      console.log(`HEAD response for ${url}:`, response.status, response.headers.get('content-type'));
+      if (response.ok && response.headers.get('content-type')?.includes('image')) {
+        console.log(`Image found for post ${id} at ${url}`);
+        setImageUrls((prev) => ({ ...prev, [id]: url }));
+        setFetchedPostIds((prev) => new Set(prev).add(id));
+        return;
+      }
+      console.log(`Not an image: ${url}`);
+    } catch (error) {
+      console.error(`Error checking direct image: ${url}`, error);
+    }
 
     try {
       const response = await fetch(url);
+      console.log(`Fetch response for ${url}:`, response.status, response.headers.get('content-type'));
       if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+        throw new Error(`HTTP error ${response.status}`);
       }
-
       const contentType = response.headers.get('content-type');
-      console.log(`Content-Type for ${url}: ${contentType}`);
-
-      let imageUrl;
-      if (contentType && contentType.includes('application/json')) {
+      if (contentType?.includes('application/json')) {
         const data = await response.json();
-        imageUrl = data.image || data.imageUrl || 'https://placehold.co/300x200';
+        console.log(`Fetched JSON data for post ${id}:`, data);
+        setImageUrls((prev) => ({
+          ...prev,
+          [id]: data.image || data.imageUrl || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200',
+        }));
       } else {
-        imageUrl = url;
+        console.log(`Not JSON content: ${contentType}`);
+        setImageUrls((prev) => ({ ...prev, [id]: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200' }));
       }
-
-      setImageUrls((prev) => ({ ...prev, [id]: imageUrl }));
-      setFetchedPostIds((prev) => {
-        const newSet = new Set(prev);
-        newSet.add(id);
-        console.log(`Updated fetchedPostIds:`, Array.from(newSet));
-        return newSet;
-      });
+      setFetchedPostIds((prev) => new Set(prev).add(id));
     } catch (err) {
       console.error(`Error fetching image for post ${id}:`, err.message);
-      setImageUrls((prev) => ({ ...prev, [id]: 'https://placehold.co/300x200' }));
-      setFetchedPostIds((prev) => {
-        const newSet = new Set(prev);
-        newSet.add(id);
-        console.log(`Updated fetchedPostIds (error):`, Array.from(newSet));
-        return newSet;
-      });
+      setImageUrls((prev) => ({ ...prev, [id]: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200' }));
+      setFetchedPostIds((prev) => new Set(prev).add(id));
     }
   }, [fetchedPostIds]);
 
@@ -150,104 +164,113 @@ const AllFriendPostScreen = () => {
     setCommentText((prev) => ({ ...prev, [postId]: '' }));
   };
 
-  const renderPost = ({ item: post }) => (
-    <View style={[styles.postCard, !isMobile && styles.postCardDesktop]}>
-      <View style={styles.postHeader}>
-        <MaterialIcons name="account-circle" size={40} color={colors.primary} />
-        <View style={styles.postHeaderInfo}>
-          <Text style={[styles.postUsername, { color: colors.text }]}>
-            {post.owner || 'Unknown User'}
-          </Text>
-          {post.timestamp && (
-            <Text style={[styles.postTimestamp, { color: colors.textSecondary }]}>
-              {formatDistanceToNow(new Date(Number(post.timestamp) * 1000), { addSuffix: true })}
+  const renderPost = ({ item: post }) => {
+    console.log(`Rendering post ${post.id} with imageUrl: ${imageUrls[String(post.id)] || 'undefined'}`);
+    return (
+      <View style={[styles.postCard, !isMobile && styles.postCardDesktop]}>
+        <View style={styles.postHeader}>
+          <MaterialIcons name="account-circle" size={40} color={colors.primary} />
+          <View style={styles.postHeaderInfo}>
+            <Text style={[styles.postUsername, { color: colors.text }]}>
+              {post.owner || 'Unknown User'}
             </Text>
-          )}
+            {post.timestamp && (
+              <Text style={[styles.postTimestamp, { color: colors.textSecondary }]}>
+                {formatDistanceToNow(new Date(Number(post.timestamp) * 1000), { addSuffix: true })}
+              </Text>
+            )}
+          </View>
         </View>
-      </View>
 
-      {post.content && (
-        <Text style={[styles.postContent, { color: colors.text }]}>{post.content}</Text>
-      )}
+        {post.content && (
+          <Text style={[styles.postContent, { color: colors.text }]}>{post.content}</Text>
+        )}
 
-      {post.imageHash && (
-        <Image
-          source={{ uri: imageUrls[String(post.id)] || 'https://placehold.co/300x200' }}
-          style={styles.postImage}
-          resizeMode="cover"
-          onError={() => setImageUrls((prev) => ({ ...prev, [String(post.id)]: 'https://placehold.co/300x200' }))}
-        />
-      )}
+        {post.imageHash && (
+          <Image
+            source={{ uri: imageUrls[String(post.id)] || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200' }}
+            style={styles.postImage}
+            resizeMode="cover"
+            onError={(e) => {
+              console.error(`Image load error for post ${post.id}:`, e.nativeEvent.error);
+              setImageUrls((prev) => ({
+                ...prev,
+                [String(post.id)]: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200',
+              }));
+            }}
+          />
+        )}
 
-      <View style={styles.postStats}>
-        <View style={[styles.statPill, { backgroundColor: colors.surface }]}>
-          <MaterialIcons name="thumb-up" size={16} color={colors.textSecondary} style={styles.statIcon} />
-          <Text style={[styles.statText, { color: colors.textSecondary }]}>
-            {post.likes?.length || 0}
-          </Text>
+        <View style={styles.postStats}>
+          <View style={[styles.statPill, { backgroundColor: colors.surface }]}>
+            <MaterialIcons name="thumb-up" size={16} color={colors.textSecondary} style={styles.statIcon} />
+            <Text style={[styles.statText, { color: colors.textSecondary }]}>
+              {post.likes?.length || 0}
+            </Text>
+          </View>
+          <View style={[styles.statPill, { backgroundColor: colors.surface }]}>
+            <MaterialIcons name="comment" size={16} color={colors.textSecondary} style={styles.statIcon} />
+            <Text style={[styles.statText, { color: colors.textSecondary }]}>
+              {post.comments?.length || 0}
+            </Text>
+          </View>
         </View>
-        <View style={[styles.statPill, { backgroundColor: colors.surface }]}>
-          <MaterialIcons name="comment" size={16} color={colors.textSecondary} style={styles.statIcon} />
-          <Text style={[styles.statText, { color: colors.textSecondary }]}>
-            {post.comments?.length || 0}
-          </Text>
+
+        <View style={styles.postActions}>
+          <TouchableOpacity
+            onPress={() => handleLike(post.owner, post.id)}
+            style={[styles.actionButton, isLiked[String(post.id)] && { backgroundColor: colors.primary }]}
+          >
+            <MaterialIcons name="thumb-up" size={16} color={isLiked[String(post.id)] ? '#fff' : colors.textSecondary} />
+            <Text style={[styles.actionText, { color: isLiked[String(post.id)] ? '#fff' : colors.textSecondary }]}>Like</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface }]}>
+            <MaterialIcons name="comment" size={16} color={colors.textSecondary} />
+            <Text style={[styles.actionText, { color: colors.textSecondary }]}>Comment</Text>
+          </TouchableOpacity>
         </View>
-      </View>
 
-      <View style={styles.postActions}>
-        <TouchableOpacity
-          onPress={() => handleLike(post.owner, post.id)}
-          style={[styles.actionButton, isLiked[String(post.id)] && { backgroundColor: colors.primary }]}
-        >
-          <MaterialIcons name="thumb-up" size={16} color={isLiked[String(post.id)] ? '#fff' : colors.textSecondary} />
-          <Text style={[styles.actionText, { color: isLiked[String(post.id)] ? '#fff' : colors.textSecondary }]}>Like</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface }]}>
-          <MaterialIcons name="comment" size={16} color={colors.textSecondary} />
-          <Text style={[styles.actionText, { color: colors.textSecondary }]}>Comment</Text>
-        </TouchableOpacity>
-      </View>
+        <View style={styles.commentInputContainer}>
+          <TextInput
+            style={[styles.commentInput, { borderColor: colors.border, color: colors.text }]}
+            placeholder="Write a comment..."
+            placeholderTextColor={colors.textSecondary}
+            value={commentText[post.id] || ''}
+            onChangeText={(text) => setCommentText((prev) => ({ ...prev, [post.id]: text }))}
+          />
+          <TouchableOpacity
+            onPress={() => handleComment(post.owner, post.id)}
+            disabled={!commentText[post.id]?.trim()}
+            style={[styles.commentButton, !commentText[post.id]?.trim() ? styles.disabledButton : { backgroundColor: colors.primary }]}
+          >
+            <Text style={styles.commentButtonText}>Post</Text>
+          </TouchableOpacity>
+        </View>
 
-      <View style={styles.commentInputContainer}>
-        <TextInput
-          style={[styles.commentInput, { borderColor: colors.border, color: colors.text }]}
-          placeholder="Write a comment..."
-          placeholderTextColor={colors.textSecondary}
-          value={commentText[post.id] || ''}
-          onChangeText={(text) => setCommentText((prev) => ({ ...prev, [post.id]: text }))}
-        />
-        <TouchableOpacity
-          onPress={() => handleComment(post.owner, post.id)}
-          disabled={!commentText[post.id]?.trim()}
-          style={[styles.commentButton, !commentText[post.id]?.trim() ? styles.disabledButton : { backgroundColor: colors.primary }]}
-        >
-          <Text style={styles.commentButtonText}>Post</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.commentsSection}>
-        <Text style={[styles.commentsTitle, { color: colors.text }]}>Comments</Text>
-        {post.comments?.length > 0 &&
-          post.comments
-            .filter((comment) => {
-              const isValid = comment?.commenter && typeof comment.commentText === 'string' && comment.commentText.trim() && comment.commentText !== '.';
-              if (!isValid) {
-                console.warn(`Invalid comment for post ${post.id}:`, comment);
-              }
-              return isValid;
-            })
-            .map((comment, index) => (
-              <View key={index} style={styles.comment}>
-                <MaterialIcons name="account-circle" size={24} color={colors.textSecondary} style={styles.commentIcon} />
-                <View>
-                  <Text style={[styles.commenter, { color: colors.text }]}>{comment.commenter}</Text>
-                  <Text style={[styles.commentText, { color: colors.textSecondary }]}>{comment.commentText}</Text>
+        <View style={styles.commentsSection}>
+          <Text style={[styles.commentsTitle, { color: colors.text }]}>Comments</Text>
+          {post.comments?.length > 0 &&
+            post.comments
+              .filter((comment) => {
+                const isValid = comment?.commenter && typeof comment.commentText === 'string' && comment.commentText.trim() && comment.commentText !== '.';
+                if (!isValid) {
+                  console.warn(`Invalid comment for post ${post.id}:`, comment);
+                }
+                return isValid;
+              })
+              .map((comment, index) => (
+                <View key={index} style={styles.comment}>
+                  <MaterialIcons name="account-circle" size={24} color={colors.textSecondary} style={styles.commentIcon} />
+                  <View>
+                    <Text style={[styles.commenter, { color: colors.text }]}>{comment.commenter}</Text>
+                    <Text style={[styles.commentText, { color: colors.textSecondary }]}>{comment.commentText}</Text>
+                  </View>
                 </View>
-              </View>
-            ))}
+              ))}
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <Animated.View
