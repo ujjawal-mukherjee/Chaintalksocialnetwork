@@ -1,4 +1,4 @@
-import React, { useEffect, useContext, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useContext, useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -6,18 +6,20 @@ import {
   FlatList,
   ActivityIndicator,
   TouchableOpacity,
-  Platform,
   StatusBar,
   Animated,
   useWindowDimensions,
   TextInput,
   Image,
-} from 'react-native';
-import { chatAppContext } from '../Context/ChatAppContext';
-import { useTheme } from '../Context/ThemeContext';
-import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
-import { formatDistanceToNow } from 'date-fns';
+} from "react-native";
+import { chatAppContext } from "../Context/ChatAppContext";
+import { useTheme } from "../Context/ThemeContext";
+import { MaterialIcons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import { formatDistanceToNow } from "date-fns";
+
+const fallbackImage =
+  "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200";
 
 const AllFriendPostScreen = () => {
   const navigation = useNavigation();
@@ -32,12 +34,11 @@ const AllFriendPostScreen = () => {
     commentOnPost,
     connectWallet,
   } = useContext(chatAppContext);
+
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [commentText, setCommentText] = useState({});
   const [imageUrls, setImageUrls] = useState({});
   const [isLiked, setIsLiked] = useState({});
-  const [fetchedPostIds, setFetchedPostIds] = useState(new Set());
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(-10)).current;
@@ -45,112 +46,74 @@ const AllFriendPostScreen = () => {
   useEffect(() => {
     const initialize = async () => {
       try {
-        if (!currentUserAddress) {
-          await connectWallet();
-        }
+        if (!currentUserAddress) await connectWallet();
         await fetchFriendsPosts();
-      } catch (err) {
-        setError(err.message || 'Failed to load posts');
-      } finally {
+      } catch { }
+      finally {
         setLoading(false);
       }
     };
     initialize();
 
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateY, {
-        toValue: 0,
-        duration: 500,
-        useNativeDriver: true,
-      }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.timing(translateY, { toValue: 0, duration: 500, useNativeDriver: true }),
     ]).start();
-  }, [currentUserAddress, connectWallet, fetchFriendsPosts]);
+  }, []);
 
   const getRawHash = (imageHash) => {
     if (!imageHash) return null;
-    const match = imageHash.match(/(?:ipfs\/|ipfs:\/\/)?Qm[1-9A-Za-z]{44}/);
-    return match ? match[0].replace('ipfs://', '').replace('ipfs/', '') : imageHash;
+    const match = imageHash.match(/Qm[1-9A-Za-z]{44}/);
+    return match ? match[0] : imageHash;
   };
 
-  const fetchImageData = useCallback(async (postId, imageHash) => {
-    const id = String(postId);
-    console.log(`Starting fetchImageData for post ${id} with imageHash: ${imageHash}`);
-    if (!imageHash || fetchedPostIds.has(id)) {
-      console.log(`Skipping fetch for post ${id}: already fetched or no imageHash, using fallback`);
-      setImageUrls((prev) => ({ ...prev, [id]: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200' }));
-      return;
-    }
+  const fetchImageData = useCallback(
+    async (postId, imageHash) => {
+      const id = String(postId);
+      if (imageUrls[id]) return;
 
-    const rawHash = getRawHash(imageHash);
-    console.log(`Raw imageHash for post ${id}:`, rawHash);
-    if (!rawHash) {
-      console.log(`Invalid imageHash for post ${id}, using fallback`);
-      setImageUrls((prev) => ({ ...prev, [id]: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200' }));
-      setFetchedPostIds((prev) => new Set(prev).add(id));
-      return;
-    }
-
-    const url = `https://ipfs.io/ipfs/${rawHash}`;
-    console.log(`Fetching image for post ${id} from ${url}`);
-
-    try {
-      const response = await fetch(url, { method: 'HEAD' });
-      console.log(`HEAD response for ${url}:`, response.status, response.headers.get('content-type'));
-      if (response.ok && response.headers.get('content-type')?.includes('image')) {
-        console.log(`Image found for post ${id} at ${url}`);
-        setImageUrls((prev) => ({ ...prev, [id]: url }));
-        setFetchedPostIds((prev) => new Set(prev).add(id));
+      const rawHash = getRawHash(imageHash);
+      if (!rawHash) {
+        setImageUrls((prev) => ({ ...prev, [id]: fallbackImage }));
         return;
       }
-      console.log(`Not an image: ${url}`);
-    } catch (error) {
-      console.error(`Error checking direct image: ${url}`, error);
-    }
 
-    try {
-      const response = await fetch(url);
-      console.log(`Fetch response for ${url}:`, response.status, response.headers.get('content-type'));
-      if (!response.ok) {
-        throw new Error(`HTTP error ${response.status}`);
+      const possibleUrls = [
+        `https://ipfs.io/ipfs/${rawHash}`,
+        `https://gateway.pinata.cloud/ipfs/${rawHash}`,
+        `https://coffee-perfect-lemur-527.mypinata.cloud/ipfs/${rawHash}`,
+      ];
+
+      for (const url of possibleUrls) {
+        try {
+          const res = await fetch(url, { method: "HEAD" });
+          if (res.ok && res.headers.get("content-type")?.includes("image")) {
+            setImageUrls((prev) => ({ ...prev, [id]: url }));
+            return;
+          }
+        } catch {
+          continue;
+        }
       }
-      const contentType = response.headers.get('content-type');
-      if (contentType?.includes('application/json')) {
-        const data = await response.json();
-        console.log(`Fetched JSON data for post ${id}:`, data);
-        setImageUrls((prev) => ({
-          ...prev,
-          [id]: data.image || data.imageUrl || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200',
-        }));
-      } else {
-        console.log(`Not JSON content: ${contentType}`);
-        setImageUrls((prev) => ({ ...prev, [id]: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200' }));
-      }
-      setFetchedPostIds((prev) => new Set(prev).add(id));
-    } catch (err) {
-      console.error(`Error fetching image for post ${id}:`, err.message);
-      setImageUrls((prev) => ({ ...prev, [id]: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200' }));
-      setFetchedPostIds((prev) => new Set(prev).add(id));
-    }
-  }, [fetchedPostIds]);
+
+      setImageUrls((prev) => ({ ...prev, [id]: fallbackImage }));
+    },
+    [imageUrls]
+  );
 
   useEffect(() => {
-    console.log('friendsPosts:', friendsPosts.map(post => ({ id: post.id, imageHash: post.imageHash, comments: post.comments })));
+    if (!friendsPosts?.length) return;
     friendsPosts.forEach((post) => {
-      fetchImageData(post.id, post.imageHash);
+      if (post.imageHash) fetchImageData(post.id, post.imageHash);
     });
   }, [friendsPosts, fetchImageData]);
 
   useEffect(() => {
-    const newIsLiked = {};
-    friendsPosts.forEach((post) => {
-      newIsLiked[String(post.id)] = post.likes.includes(currentUserAddress);
+    const newLikes = {};
+    friendsPosts.forEach((p) => {
+      newLikes[String(p.id)] = p.likes.includes(currentUserAddress);
     });
-    setIsLiked(newIsLiked);
+    setIsLiked(newLikes);
   }, [friendsPosts, currentUserAddress]);
 
   const handleLike = (owner, postId) => {
@@ -161,18 +124,18 @@ const AllFriendPostScreen = () => {
   const handleComment = (owner, postId) => {
     if (!commentText[postId]?.trim()) return;
     commentOnPost(owner, postId, commentText[postId]);
-    setCommentText((prev) => ({ ...prev, [postId]: '' }));
+    setCommentText((prev) => ({ ...prev, [postId]: "" }));
   };
 
   const renderPost = ({ item: post }) => {
-    console.log(`Rendering post ${post.id} with imageUrl: ${imageUrls[String(post.id)] || 'undefined'}`);
+    const cardWidth = (width - 48) / 2; // padding + gap
     return (
-      <View style={[styles.postCard, !isMobile && styles.postCardDesktop]}>
+      <View style={[styles.postCard, { width: cardWidth }]}>
         <View style={styles.postHeader}>
           <MaterialIcons name="account-circle" size={40} color={colors.primary} />
           <View style={styles.postHeaderInfo}>
             <Text style={[styles.postUsername, { color: colors.text }]}>
-              {post.owner || 'Unknown User'}
+              {post.owner || "Unknown User"}
             </Text>
             {post.timestamp && (
               <Text style={[styles.postTimestamp, { color: colors.textSecondary }]}>
@@ -182,34 +145,29 @@ const AllFriendPostScreen = () => {
           </View>
         </View>
 
-        {post.content && (
-          <Text style={[styles.postContent, { color: colors.text }]}>{post.content}</Text>
-        )}
-
         {post.imageHash && (
           <Image
-            source={{ uri: imageUrls[String(post.id)] || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200' }}
-            style={styles.postImage}
+            source={{ uri: imageUrls[String(post.id)] || fallbackImage }}
+            style={styles.postImageGrid}
             resizeMode="cover"
-            onError={(e) => {
-              console.error(`Image load error for post ${post.id}:`, e.nativeEvent.error);
-              setImageUrls((prev) => ({
-                ...prev,
-                [String(post.id)]: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200',
-              }));
-            }}
           />
+        )}
+
+        {post.content && (
+          <Text style={[styles.postContent, { color: colors.text }]} numberOfLines={3}>
+            {post.content}
+          </Text>
         )}
 
         <View style={styles.postStats}>
           <View style={[styles.statPill, { backgroundColor: colors.surface }]}>
-            <MaterialIcons name="thumb-up" size={16} color={colors.textSecondary} style={styles.statIcon} />
+            <MaterialIcons name="thumb-up" size={16} color={colors.textSecondary} />
             <Text style={[styles.statText, { color: colors.textSecondary }]}>
               {post.likes?.length || 0}
             </Text>
           </View>
           <View style={[styles.statPill, { backgroundColor: colors.surface }]}>
-            <MaterialIcons name="comment" size={16} color={colors.textSecondary} style={styles.statIcon} />
+            <MaterialIcons name="comment" size={16} color={colors.textSecondary} />
             <Text style={[styles.statText, { color: colors.textSecondary }]}>
               {post.comments?.length || 0}
             </Text>
@@ -221,12 +179,14 @@ const AllFriendPostScreen = () => {
             onPress={() => handleLike(post.owner, post.id)}
             style={[styles.actionButton, isLiked[String(post.id)] && { backgroundColor: colors.primary }]}
           >
-            <MaterialIcons name="thumb-up" size={16} color={isLiked[String(post.id)] ? '#fff' : colors.textSecondary} />
-            <Text style={[styles.actionText, { color: isLiked[String(post.id)] ? '#fff' : colors.textSecondary }]}>Like</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface }]}>
-            <MaterialIcons name="comment" size={16} color={colors.textSecondary} />
-            <Text style={[styles.actionText, { color: colors.textSecondary }]}>Comment</Text>
+            <MaterialIcons
+              name="thumb-up"
+              size={16}
+              color={isLiked[String(post.id)] ? "#fff" : colors.textSecondary}
+            />
+            <Text style={[styles.actionText, { color: isLiked[String(post.id)] ? "#fff" : colors.textSecondary }]}>
+              Like
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -235,38 +195,19 @@ const AllFriendPostScreen = () => {
             style={[styles.commentInput, { borderColor: colors.border, color: colors.text }]}
             placeholder="Write a comment..."
             placeholderTextColor={colors.textSecondary}
-            value={commentText[post.id] || ''}
+            value={commentText[post.id] || ""}
             onChangeText={(text) => setCommentText((prev) => ({ ...prev, [post.id]: text }))}
           />
           <TouchableOpacity
             onPress={() => handleComment(post.owner, post.id)}
             disabled={!commentText[post.id]?.trim()}
-            style={[styles.commentButton, !commentText[post.id]?.trim() ? styles.disabledButton : { backgroundColor: colors.primary }]}
+            style={[
+              styles.commentButton,
+              !commentText[post.id]?.trim() ? styles.disabledButton : { backgroundColor: colors.primary },
+            ]}
           >
             <Text style={styles.commentButtonText}>Post</Text>
           </TouchableOpacity>
-        </View>
-
-        <View style={styles.commentsSection}>
-          <Text style={[styles.commentsTitle, { color: colors.text }]}>Comments</Text>
-          {post.comments?.length > 0 &&
-            post.comments
-              .filter((comment) => {
-                const isValid = comment?.commenter && typeof comment.commentText === 'string' && comment.commentText.trim() && comment.commentText !== '.';
-                if (!isValid) {
-                  console.warn(`Invalid comment for post ${post.id}:`, comment);
-                }
-                return isValid;
-              })
-              .map((comment, index) => (
-                <View key={index} style={styles.comment}>
-                  <MaterialIcons name="account-circle" size={24} color={colors.textSecondary} style={styles.commentIcon} />
-                  <View>
-                    <Text style={[styles.commenter, { color: colors.text }]}>{comment.commenter}</Text>
-                    <Text style={[styles.commentText, { color: colors.textSecondary }]}>{comment.commentText}</Text>
-                  </View>
-                </View>
-              ))}
         </View>
       </View>
     );
@@ -274,34 +215,24 @@ const AllFriendPostScreen = () => {
 
   return (
     <Animated.View
-      style={[
-        styles.container,
-        {
-          backgroundColor: colors.background,
-          opacity: fadeAnim,
-          transform: [{ translateY }],
-        },
-      ]}
+      style={[styles.container, { backgroundColor: colors.background, opacity: fadeAnim, transform: [{ translateY }] }]}
     >
       <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
+
       <View style={[styles.header, { backgroundColor: colors.surface }]}>
         <TouchableOpacity
-          style={[styles.backButton, { backgroundColor: colors.primary + '15' }]}
+          style={[styles.backButton, { backgroundColor: colors.primary + "15" }]}
           onPress={() => navigation.goBack()}
-          activeOpacity={0.7}
         >
           <MaterialIcons name="arrow-back-ios" size={20} color={colors.primary} />
         </TouchableOpacity>
         <View style={styles.headerContent}>
-          <View style={[styles.headerIconContainer, { backgroundColor: colors.primary + '15' }]}>
-            <MaterialIcons name="people" size={24} color={colors.primary} />
-          </View>
+          <MaterialIcons name="people" size={24} color={colors.primary} />
           <Text style={[styles.headerTitle, { color: colors.text }]}>All Friends' Posts</Text>
         </View>
         <TouchableOpacity
-          style={[styles.refreshButton, { backgroundColor: colors.primary + '15' }]}
+          style={[styles.refreshButton, { backgroundColor: colors.primary + "15" }]}
           onPress={() => fetchFriendsPosts()}
-          activeOpacity={0.7}
         >
           <MaterialIcons name="refresh" size={20} color={colors.primary} />
         </TouchableOpacity>
@@ -309,59 +240,18 @@ const AllFriendPostScreen = () => {
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <View style={[styles.loadingCircle, { borderColor: colors.primary }]}>
-            <ActivityIndicator size="large" color={colors.primary} />
-          </View>
-          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-            Loading friends' posts...
-          </Text>
-        </View>
-      ) : error ? (
-        <View style={styles.errorContainer}>
-          <View style={[styles.errorIconContainer, { backgroundColor: colors.error + '15' }]}>
-            <MaterialIcons name="error-outline" size={48} color={colors.error} />
-          </View>
-          <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
-          <TouchableOpacity
-            style={[styles.retryButton, { backgroundColor: colors.primary }]}
-            onPress={() => fetchFriendsPosts()}
-          >
-            <MaterialIcons name="refresh" size={20} color="#fff" />
-            <Text style={styles.retryText}>Retry</Text>
-          </TouchableOpacity>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={{ color: colors.textSecondary }}>Loading posts...</Text>
         </View>
       ) : (
         <FlatList
           data={friendsPosts || []}
           renderItem={renderPost}
-          keyExtractor={(item, index) => String(index)}
-          contentContainerStyle={[
-            styles.listContent,
-            isMobile && styles.mobileListContent,
-          ]}
+          keyExtractor={(item) => String(item.id)}
+          contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          numColumns={isMobile ? 1 : 2}
-          columnWrapperStyle={!isMobile && styles.columnWrapper}
-          ListEmptyComponent={() => (
-            <View style={styles.emptyContainer}>
-              <View style={[styles.emptyIconContainer, { backgroundColor: colors.textSecondary + '15' }]}>
-                <MaterialIcons name="people" size={48} color={colors.textSecondary} />
-              </View>
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                No Posts Yet
-              </Text>
-              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-                When your friends share posts, they'll appear here
-              </Text>
-              <TouchableOpacity
-                style={[styles.addFriendsButton, { backgroundColor: colors.primary }]}
-                onPress={() => navigation.navigate('AddFriends')}
-              >
-                <MaterialIcons name="person-add" size={20} color="#fff" />
-                <Text style={styles.addFriendsText}>Add Friends</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          numColumns={2} // ✅ two cards per row
+          columnWrapperStyle={{ justifyContent: "space-between", marginBottom: 16 }}
         />
       )}
     </Animated.View>
@@ -369,284 +259,32 @@ const AllFriendPostScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.08)',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  headerIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  refreshButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 16,
-    padding: 20,
-  },
-  loadingCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 3,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 20,
-    padding: 24,
-  },
-  errorIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  errorText: {
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  retryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 25,
-    gap: 8,
-    marginTop: 8,
-  },
-  retryText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  listContent: {
-    paddingVertical: 16,
-  },
-  mobileListContent: {
-    paddingHorizontal: 16,
-  },
-  columnWrapper: {
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-    gap: 16,
-  },
-  emptyIconContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  emptyText: {
-    fontSize: 16,
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 16,
-  },
-  addFriendsButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 25,
-    gap: 8,
-  },
-  addFriendsText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  postCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    overflow: 'hidden',
-  },
-  postCardDesktop: {
-    flex: 1,
-    marginHorizontal: 8,
-  },
-  postHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  postHeaderInfo: {
-    marginLeft: 8,
-  },
-  postUsername: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  postTimestamp: {
-    fontSize: 12,
-  },
-  postContent: {
-    fontSize: 14,
-    marginBottom: 12,
-  },
-  postImage: {
-    width: '100%',
-    height: 200,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  postStats: {
-    flexDirection: 'row',
-    marginBottom: 12,
-    gap: 12,
-  },
-  statPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  statIcon: {
-    marginRight: 4,
-  },
-  statText: {
-    fontSize: 12,
-  },
-  postActions: {
-    flexDirection: 'row',
-    marginBottom: 12,
-    gap: 8,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  actionText: {
-    fontSize: 14,
-    marginLeft: 4,
-  },
-  commentInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  commentInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 8,
-    fontSize: 14,
-  },
-  commentButton: {
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginLeft: 8,
-  },
-  disabledButton: {
-    backgroundColor: '#ccc',
-  },
-  commentButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  commentsSection: {
-    marginTop: 8,
-  },
-  commentsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  comment: {
-    flexDirection: 'row',
-    marginBottom: 8,
-  },
-  commentIcon: {
-    marginRight: 8,
-  },
-  commenter: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  commentText: {
-    fontSize: 14,
-  },
+  container: { flex: 1 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.08)" },
+  backButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  headerContent: { flexDirection: "row", alignItems: "center", gap: 8 },
+  headerTitle: { fontSize: 18, fontWeight: "700" },
+  refreshButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  listContent: { padding: 16 },
+  postCard: { backgroundColor: "#fff", borderRadius: 12, padding: 8, elevation: 3 },
+  postHeader: { flexDirection: "row", alignItems: "center", marginBottom: 4 },
+  postHeaderInfo: { marginLeft: 8 },
+  postUsername: { fontSize: 14, fontWeight: "600" },
+  postTimestamp: { fontSize: 10 },
+  postContent: { fontSize: 12, marginBottom: 4 },
+  postImageGrid: { width: "100%", height: 150, borderRadius: 12, marginBottom: 4 },
+  postStats: { flexDirection: "row", justifyContent: "space-between", marginVertical: 4 },
+  statPill: { flexDirection: "row", alignItems: "center", borderRadius: 12, paddingHorizontal: 6, paddingVertical: 2 },
+  statText: { fontSize: 12 },
+  postActions: { flexDirection: "row", marginBottom: 4 },
+  actionButton: { flexDirection: "row", alignItems: "center", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  actionText: { fontSize: 12, marginLeft: 4 },
+  commentInputContainer: { flexDirection: "row", alignItems: "center", marginBottom: 4 },
+  commentInput: { flex: 1, borderWidth: 1, borderRadius: 8, padding: 6, fontSize: 12 },
+  commentButton: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, marginLeft: 4 },
+  disabledButton: { backgroundColor: "#ccc" },
+  commentButtonText: { color: "#fff", fontWeight: "600", fontSize: 12 },
 });
 
 export default AllFriendPostScreen;
