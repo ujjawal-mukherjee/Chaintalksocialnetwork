@@ -4,7 +4,7 @@ A **decentralized social media platform** powered by **React Native**, **Expo**,
 
 Contract Deployed To sepolia Testnet.
 
-🚀 **Live Demo**: [https://chin-talk-web.vercel.app/](https://chin-talk-web.vercel.app/)
+🚀 **Live Demo**: https://chaintalksocialnetwork-e7gf.vercel.app/
 
 ---
 
